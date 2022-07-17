@@ -1,0 +1,108 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: statics
+  labels:
+    app: statics
+spec:
+  replicas: 6
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 2
+      maxSurge: 2
+  template:
+    metadata:
+      labels:
+        app: statics
+    spec:
+      volumes:
+        - name: src
+          emptyDir: {}
+      initContainers:
+        - name: prepare-statics
+          image: alpine/git
+          command:
+            - git
+            - clone
+            - https://github.com/mdn/beginner-html-site-scripted
+            - /static
+          volumeMounts:
+            - mountPath: /static
+              name: src
+      containers:
+        - name: statics
+          image: docker.io/mfando/k8s-go-app-static:0.0.1
+          imagePullPolicy: Always
+          volumeMounts:
+            - mountPath: /static
+              name: src
+          env:
+            - name: PORT
+              value: "8080"
+            - name: STATICS_PATH
+              value: "/static"
+          ports:
+            - containerPort: 8080
+          livenessProbe:
+            httpGet:
+              path: /__heartbeat__
+              port: 8080
+              scheme: HTTP
+            initialDelaySeconds: 5
+            periodSeconds: 15
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /__heartbeat__
+              port: 8080
+              scheme: HTTP
+            initialDelaySeconds: 5
+            timeoutSeconds: 1
+          resources:
+            limits:
+              cpu: 2m
+              memory: 10Mi
+            requests:
+              cpu: 2m
+              memory: 10Mi
+  selector:
+    matchLabels:
+      app: statics
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: statics
+  labels:
+    app: statics
+spec:
+  ports:
+    - port: 8080
+      targetPort: 8080
+      protocol: TCP
+      name: http
+  selector:
+    app: statics
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    ingress.kubernetes.io/rewrite-target: /
+  labels:
+    app: statics
+  name: statics
+spec:
+  rules:
+    - host: g3-max.k8s-go-app.host
+      http:
+        paths:
+          - path: /statics
+            pathType: Prefix
+            backend:
+              service:
+                name: statics
+                port:
+                  number: 8080
